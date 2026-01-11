@@ -27,7 +27,7 @@ ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
 genai.configure(api_key=API_KEY, transport="rest")
 # Fixed Model Name
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('models/gemini-1.5-flash')
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 3. DATA HANDLERS ---
@@ -133,3 +133,4 @@ pg = st.navigation([
     st.Page(dev_mode, title="Admin", icon="🔒")
 ])
 pg.run()
+
