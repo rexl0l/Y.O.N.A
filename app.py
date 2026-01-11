@@ -43,12 +43,32 @@ def coworker_mode():
             # Search the FullOrder column for the digits entered
             results = df[df['FullOrder'].str.contains(query.strip(), na=False)]
 
-            if not results.empty:
-                for _, row in results.iterrows():
-                    with st.container(border=True):
-                        st.markdown(f"### 🚩 {row['Color']} Flag — #{row['FlagNumber']}")
-                        st.write(f"**Truck/Inbound:** {row['TruckID']}")
-                        st.caption(f"Full Order ID: {row['FullOrder']}")
+           if not result.empty:
+            row = result.iloc[0]
+            # Fetch the color from the spreadsheet (e.g., "Red", "Blue")
+            flag_color = row['Color'].lower() 
+            
+            # BIG COLOR BOX DISPLAY
+            st.markdown(f"""
+                <div style="
+                    background-color: {flag_color}; 
+                    padding: 40px; 
+                    border-radius: 20px; 
+                    text-align: center; 
+                    border: 5px solid black;
+                    margin-top: 20px;
+                ">
+                    <h1 style="color: white; font-size: 60px; text-shadow: 2px 2px 4px #000; margin: 0;">
+                        {row['Color'].upper()}
+                    </h1>
+                    <h2 style="color: white; margin: 0; text-shadow: 1px 1px 2px #000;">
+                        FLAG #{row['FlagNumber']}
+                    </h2>
+                    <p style="color: white; margin: 0; font-size: 20px; opacity: 0.8;">
+                        Truck: {row['TruckID']}
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
             else:
                 st.warning(f"No match found for '{query}'.")
 
@@ -113,3 +133,4 @@ pg = st.navigation([
     st.Page(dev_mode, title="Admin", icon="🔒")
 ])
 pg.run()
+
