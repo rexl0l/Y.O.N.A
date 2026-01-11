@@ -115,3 +115,4 @@ pg = st.navigation([
     st.Page(dev_mode, title="Admin", icon="🔒")
 ])
 pg.run()
+
