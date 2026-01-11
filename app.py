@@ -13,7 +13,7 @@ ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
 genai.configure(api_key=API_KEY)
 # Using the standard model name for the API
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-3-flash-preview')
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 2. DATA HANDLERS ---
@@ -43,24 +43,17 @@ def coworker_mode():
     if query:
         df = get_data()
         if not df.empty:
-            # Search the FullOrder column for the digits entered
+            # We search for 'results' (plural)
             results = df[df['FullOrder'].str.contains(query.strip(), na=False)]
 
             if not results.empty:
                 row = results.iloc[0]
-                # Fetch the color from the spreadsheet (e.g., "Red", "Blue")
-                flag_color = row['Color'].lower() 
+                flag_color = str(row['Color']).lower() 
                 
                 # BIG COLOR BOX DISPLAY
                 st.markdown(f"""
-                    <div style="
-                        background-color: {flag_color}; 
-                        padding: 40px; 
-                        border-radius: 20px; 
-                        text-align: center; 
-                        border: 5px solid black;
-                        margin-top: 20px;
-                    ">
+                    <div style="background-color: {flag_color}; padding: 40px; border-radius: 20px; 
+                                text-align: center; border: 5px solid black; margin-top: 20px;">
                         <h1 style="color: white; font-size: 60px; text-shadow: 2px 2px 4px #000; margin: 0;">
                             {row['Color'].upper()}
                         </h1>
@@ -134,3 +127,4 @@ pg = st.navigation([
     st.Page(dev_mode, title="Admin", icon="🔒")
 ])
 pg.run()
+
