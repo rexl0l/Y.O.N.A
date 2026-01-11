@@ -11,13 +11,16 @@ st.set_page_config(page_title="Order Flag Scanner", layout="centered", page_icon
 API_KEY = st.secrets["GEMINI_API_KEY"]
 ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
-genai.configure(api_key=API_KEY, transport="rest")
-model = genai.GenerativeModel('gemini-3-flash-preview')
+genai.configure(api_key=API_KEY)
+# Using the standard model name for the API
+model = genai.GenerativeModel('gemini-1.5-flash')
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 2. DATA HANDLERS ---
 def get_data():
     df = conn.read(ttl="0")
+    if df.empty:
+        return pd.DataFrame(columns=["FullOrder", "FlagNumber", "TruckID", "Color"])
     # Convert everything to clean strings to avoid search errors
     for col in df.columns:
         df[col] = df[col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
@@ -43,32 +46,32 @@ def coworker_mode():
             # Search the FullOrder column for the digits entered
             results = df[df['FullOrder'].str.contains(query.strip(), na=False)]
 
-           if not result.empty:
-            row = result.iloc[0]
-            # Fetch the color from the spreadsheet (e.g., "Red", "Blue")
-            flag_color = row['Color'].lower() 
-            
-            # BIG COLOR BOX DISPLAY
-            st.markdown(f"""
-                <div style="
-                    background-color: {flag_color}; 
-                    padding: 40px; 
-                    border-radius: 20px; 
-                    text-align: center; 
-                    border: 5px solid black;
-                    margin-top: 20px;
-                ">
-                    <h1 style="color: white; font-size: 60px; text-shadow: 2px 2px 4px #000; margin: 0;">
-                        {row['Color'].upper()}
-                    </h1>
-                    <h2 style="color: white; margin: 0; text-shadow: 1px 1px 2px #000;">
-                        FLAG #{row['FlagNumber']}
-                    </h2>
-                    <p style="color: white; margin: 0; font-size: 20px; opacity: 0.8;">
-                        Truck: {row['TruckID']}
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
+            if not results.empty:
+                row = results.iloc[0]
+                # Fetch the color from the spreadsheet (e.g., "Red", "Blue")
+                flag_color = row['Color'].lower() 
+                
+                # BIG COLOR BOX DISPLAY
+                st.markdown(f"""
+                    <div style="
+                        background-color: {flag_color}; 
+                        padding: 40px; 
+                        border-radius: 20px; 
+                        text-align: center; 
+                        border: 5px solid black;
+                        margin-top: 20px;
+                    ">
+                        <h1 style="color: white; font-size: 60px; text-shadow: 2px 2px 4px #000; margin: 0;">
+                            {row['Color'].upper()}
+                        </h1>
+                        <h2 style="color: white; margin: 0; text-shadow: 1px 1px 2px #000;">
+                            FLAG #{row['FlagNumber']}
+                        </h2>
+                        <p style="color: white; margin: 0; font-size: 20px; opacity: 0.8;">
+                            Truck: {row['TruckID']}
+                        </p>
+                    </div>
+                """, unsafe_allow_html=True)
             else:
                 st.warning(f"No match found for '{query}'.")
 
@@ -120,9 +123,7 @@ def dev_mode():
     st.write("---")
     st.warning("⚠️ **Danger Zone**")
     if st.button("🗑️ Clear All Spreadsheet Data"):
-        # This creates an empty table with your headers
         empty_df = pd.DataFrame(columns=["FullOrder", "FlagNumber", "TruckID", "Color"])
-        # This overwrites the Google Sheet with the empty table
         conn.update(data=empty_df)
         st.success("Spreadsheet has been wiped clean!")
         st.rerun()
@@ -133,4 +134,3 @@ pg = st.navigation([
     st.Page(dev_mode, title="Admin", icon="🔒")
 ])
 pg.run()
-
