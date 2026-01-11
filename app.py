@@ -5,7 +5,7 @@ import pandas as pd
 from PIL import Image
 import json
 
-# --- 1. SETTINGS & CSS (MUST BE FIRST) ---
+# --- 1. SETTINGS & CSS ---
 st.set_page_config(page_title="Order Scanner", layout="centered", page_icon="🦥")
 
 st.markdown("""
@@ -25,37 +25,47 @@ st.markdown("""
 API_KEY = st.secrets["GEMINI_API_KEY"]
 ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
-genai.configure(api_key=API_KEY, transport="rest")
-# Fixed Model Name
+genai.configure(api_key=API_KEY)
+# Using the most reliable model path
 model = genai.GenerativeModel('models/gemini-1.5-flash')
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 3. DATA HANDLERS ---
 def get_data():
+    # Pull from Google
     df = conn.read(ttl="0")
+    
+    # If the sheet is empty, create a blank one with headers
+    if df.empty:
+        return pd.DataFrame(columns=["FullOrder", "OrderNumber", "FlagNumber", "TruckID", "Color"])
+
+    # Clean up the data
     for col in df.columns:
         df[col] = df[col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+    
+    # CRITICAL FIX: Create the 'OrderNumber' column on the fly if it's missing
+    # We take the last 4 characters of 'FullOrder'
+    if 'FullOrder' in df.columns:
+        df['OrderNumber'] = df['FullOrder'].str[-4:]
+    
     return df
 
 def update_cloud(new_df):
     existing_df = get_data()
-    # Ensure the new data has the 4-digit search column
-    if 'FullOrder' in new_df.columns:
-        new_df['OrderNumber'] = new_df['FullOrder'].str[-4:]
-
     combined = pd.concat([existing_df, new_df], ignore_index=True)
+    # Remove duplicates based on the Full Order ID
     final_df = combined.drop_duplicates(subset=['FullOrder'], keep='last')
     conn.update(data=final_df)
 
 # --- 4. MODE: COWORKER (SEARCH) ---
 def coworker_mode():
-    df = get_data() # Fetch fresh data
+    df = get_data()
     st.markdown("### 🔍 Quick Order Lookup")
 
     if 'search_val' not in st.session_state:
         st.session_state.search_val = ""
 
-    # Screen Display
+    # Numpad Screen
     st.markdown(f"""
         <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 20px; border: 2px solid #d1d5db;">
             <h1 style="color: #31333F; margin: 0; font-family: monospace; letter-spacing: 10px;">
@@ -64,36 +74,37 @@ def coworker_mode():
         </div>
     """, unsafe_allow_html=True)
 
-    # Numpad
+    # Numpad Buttons
     rows = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["CLR", "0", "DEL"]]
     for row in rows:
         cols = st.columns(3)
         for i, digit in enumerate(row):
-            if cols[i].button(digit, use_container_width=True):
+            if cols[i].button(digit, key=f"btn_{digit}", use_container_width=True):
                 if digit == "CLR": st.session_state.search_val = ""
                 elif digit == "DEL": st.session_state.search_val = st.session_state.search_val[:-1]
                 elif len(st.session_state.search_val) < 4: st.session_state.search_val += digit
                 st.rerun()
 
-    # Results Logic
+    # Search Logic
     if len(st.session_state.search_val) == 4:
+        # We check the column we just created in get_data()
         result = df[df['OrderNumber'] == st.session_state.search_val]
+        
         if not result.empty:
             row = result.iloc[0]
             st.markdown(f"""
                 <div style="background-color: {row['Color'].lower()}; padding: 30px; border-radius: 15px; text-align: center; border: 5px solid black; margin-top: 10px;">
                     <h1 style="color: white; font-size: 45px; text-shadow: 2px 2px 4px #000000; margin: 0;">{row['Color'].upper()}</h1>
                     <h2 style="color: white; margin: 0;">Flag #{row['FlagNumber']}</h2>
-                    <p style="color: white; margin: 0; opacity: 0.8;">Truck: {row['TruckID']}</p>
                 </div>
             """, unsafe_allow_html=True)
-
-            if st.button("✅ DONE - NEXT SEARCH", use_container_width=True):
+            
+            if st.button("✅ DONE - NEXT", use_container_width=True):
                 st.session_state.search_val = ""
                 st.rerun()
         else:
             st.error("Order Not Found")
-            if st.button("TRY AGAIN", use_container_width=True):
+            if st.button("CLEAR & TRY AGAIN", use_container_width=True):
                 st.session_state.search_val = ""
                 st.rerun()
 
@@ -123,8 +134,8 @@ def dev_mode():
                 st.success("Sync Complete!")
                 st.balloons()
 
-    if st.button("🗑️ Wipe All Data", type="secondary"):
-        conn.update(data=pd.DataFrame(columns=["FullOrder", "OrderNumber", "FlagNumber", "TruckID", "Color"]))
+    if st.button("🗑️ Wipe All Data"):
+        conn.update(data=pd.DataFrame(columns=["FullOrder", "FlagNumber", "TruckID", "Color"]))
         st.rerun()
 
 # --- 6. NAVIGATION ---
@@ -133,4 +144,3 @@ pg = st.navigation([
     st.Page(dev_mode, title="Admin", icon="🔒")
 ])
 pg.run()
-
