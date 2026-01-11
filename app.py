@@ -5,82 +5,58 @@ import pandas as pd
 from PIL import Image
 import json
 
-# --- 1. MOBILE-FIRST UI SETUP ---
-st.set_page_config(page_title="Order Lookup", layout="centered", page_icon="🔍")
+# --- 1. SETUP ---
+st.set_page_config(page_title="Order Flag Scanner", layout="centered", page_icon="🚩")
 
-st.markdown("""
-    <style>
-    /* Make the input box GIGANTIC and easy to tap */
-    .stTextInput input {
-        font-size: 50px !important;
-        height: 100px !important;
-        text-align: center !important;
-        font-family: monospace;
-    }
-    /* Style the labels */
-    .stMarkdown h3 { text-align: center; padding-bottom: 0; }
-    /* Make the "Clear" button big and red */
-    div.stButton > button {
-        height: 60px !important;
-        width: 100% !important;
-        background-color: #ff4b4b !important;
-        color: white !important;
-        font-weight: bold !important;
-        font-size: 20px !important;
-    }
-    #MainMenu, footer, header {visibility: hidden;}
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 2. SETUP ---
 API_KEY = st.secrets["GEMINI_API_KEY"]
 ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
-genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel('models/gemini-1.5-flash')
+genai.configure(api_key=API_KEY, transport="rest")
+model = genai.GenerativeModel('gemini-3-flash-preview')
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# --- 2. DATA HANDLERS ---
 def get_data():
     df = conn.read(ttl="0")
-    if df.empty:
-        return pd.DataFrame(columns=["FullOrder", "FlagNumber", "TruckID", "Color"])
-    # Standardize all data to text to prevent search crashes
-    return df.astype(str).apply(lambda x: x.str.replace(r'\.0$', '', regex=True).str.strip())
+    # Convert everything to clean strings to avoid search errors
+    for col in df.columns:
+        df[col] = df[col].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+    return df
 
-# --- 3. COWORKER MODE (THE FAST SEARCH) ---
+def update_cloud(new_df):
+    existing_df = get_data()
+    combined = pd.concat([existing_df, new_df], ignore_index=True)
+    # Use FullOrder as the unique ID to prevent duplicates
+    final_df = combined.drop_duplicates(subset=['FullOrder'], keep='last')
+    conn.update(data=final_df)
+
+# --- 3. MODE: COWORKER (SEARCH) ---
 def coworker_mode():
-    df = get_data()
-    
-    st.markdown("### 🔍 TAP BOX TO START")
-    
-    # We use a standard text input. On mobile, this opens the native keypad.
-    # We search the LAST 4 digits of the 'FullOrder' column.
-    search_query = st.text_input("Search", label_visibility="collapsed", max_chars=4, placeholder="0000")
+    st.title("🔍 Order Lookup")
+    st.write("Enter the last 4 digits of the order number.")
 
-    if search_query:
-        # SEARCH LOGIC: Find rows where 'FullOrder' ends with the typed digits
-        result = df[df['FullOrder'].str.endswith(search_query)]
-        
-        if not result.empty:
-            row = result.iloc[0]
-            st.markdown(f"""
-                <div style="background-color: {row['Color'].lower()}; padding: 40px; border-radius: 20px; text-align: center; border: 6px solid black; margin: 20px 0;">
-                    <h1 style="color: white; font-size: 60px; text-shadow: 2px 2px 4px #000; margin: 0;">{row['Color'].upper()}</h1>
-                    <h2 style="color: white; margin: 0;">Flag #{row['FlagNumber']}</h2>
-                    <p style="color: white; margin: 0; font-size: 20px; opacity: 0.9;">Truck: {row['TruckID']}</p>
-                </div>
-            """, unsafe_allow_html=True)
-        else:
-            if len(search_query) == 4:
-                st.error("❌ Order not found in today's list.")
+    query = st.text_input("Search Order:", placeholder="e.g. 0351")
 
-    st.write("---")
-    if st.button("RESET / CLEAR BOX"):
-        st.rerun()
+    if query:
+        df = get_data()
+        if not df.empty:
+            # Search the FullOrder column for the digits entered
+            results = df[df['FullOrder'].str.contains(query.strip(), na=False)]
 
-# --- 4. ADMIN MODE ---
+            if not results.empty:
+                for _, row in results.iterrows():
+                    with st.container(border=True):
+                        st.markdown(f"### 🚩 {row['Color']} Flag — #{row['FlagNumber']}")
+                        st.write(f"**Truck/Inbound:** {row['TruckID']}")
+                        st.caption(f"Full Order ID: {row['FullOrder']}")
+            else:
+                st.warning(f"No match found for '{query}'.")
+
+# --- 4. MODE: DEV (ADMIN) ---
 def dev_mode():
-    st.title("⚙️ Admin")
+    st.title("⚙️ Admin Dashboard")
+
+    # Password Protection
     if "auth" not in st.session_state: st.session_state.auth = False
     if not st.session_state.auth:
         pw = st.text_input("Password", type="password")
@@ -89,24 +65,46 @@ def dev_mode():
             st.rerun()
         return
 
+    st.subheader("📤 Scan New Sheets")
     files = st.file_uploader("Upload photos", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+
     if files and st.button("🚀 Analyze & Sync"):
         new_rows = []
-        with st.spinner("AI Reading..."):
+        with st.spinner("AI Mapping Data..."):
             for f in files:
                 img = Image.open(f)
-                res = model.generate_content(["Extract table to JSON: keys 'FullOrder', 'FlagNumber', 'TruckID', 'Color'.", img])
+                prompt = """
+                Extract the table into JSON format using these keys:
+                - 'FullOrder': The long order ID.
+                - 'FlagNumber': The small number (usually 1-50).
+                - 'TruckID': The inbound code (starts with I or T).
+                - 'Color': The color name.
+                """
+                res = model.generate_content([prompt, img])
                 raw_json = res.text.strip().replace('```json', '').replace('```', '')
                 new_rows.extend(json.loads(raw_json))
+
             if new_rows:
-                existing_df = get_data()
-                combined = pd.concat([existing_df, pd.DataFrame(new_rows)], ignore_index=True)
-                conn.update(data=combined.drop_duplicates(subset=['FullOrder'], keep='last'))
-                st.success("Sync Complete!")
+                update_cloud(pd.DataFrame(new_rows))
+                st.success("Cloud Updated!")
                 st.balloons()
 
-    if st.button("🗑️ Clear All Data"):
-        conn.update(data=pd.DataFrame(columns=["FullOrder", "FlagNumber", "TruckID", "Color"]))
+    st.divider()
+
+    # --- DATA VIEW & CLEAR SECTION ---
+    st.subheader("📋 Live Database")
+    df = get_data()
+    st.dataframe(df, use_container_width=True)
+
+    # The Clear All Button
+    st.write("---")
+    st.warning("⚠️ **Danger Zone**")
+    if st.button("🗑️ Clear All Spreadsheet Data"):
+        # This creates an empty table with your headers
+        empty_df = pd.DataFrame(columns=["FullOrder", "FlagNumber", "TruckID", "Color"])
+        # This overwrites the Google Sheet with the empty table
+        conn.update(data=empty_df)
+        st.success("Spreadsheet has been wiped clean!")
         st.rerun()
 
 # --- 5. NAVIGATION ---
@@ -115,4 +113,3 @@ pg = st.navigation([
     st.Page(dev_mode, title="Admin", icon="🔒")
 ])
 pg.run()
-
