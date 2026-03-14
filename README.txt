@@ -5,3 +5,5 @@ Key stuff that AI helped with were
 1) Implementing Gemini API (very annoying to trouble shoot)
 2) Wiring up parts of the Streamlit and Google Sheets boilerplate (navigation, GSheets connection, and some helper functions)
 3) How to Page (really easy to do but no logic required, so just save time)
+
+SCHEDULE_NIGHTLY_CLEAR.md: Currently Work in progress
